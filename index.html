@@ -1,0 +1,606 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+	<title>CM20219 – Coursework 2 – WebGL</title>
+	<meta charset="utf-8">
+	<meta http-equiv="X-UA-Compatible" content="IE=edge">
+	<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">	
+	<style>
+		body {
+			margin: 0;			
+			overflow: hidden;
+		}
+
+		canvas {
+			width: 100%;
+			height: 100%;
+			display: block;
+		}
+	</style>
+	
+</head>
+<body>
+	<script src="three.js"></script>
+	<script src="OBJLoader.js"></script>
+	<canvas id="myCanvas"></canvas>
+	
+
+
+	<script>
+		"use strict"; // https://stackoverflow.com/q/1335851/72470
+
+		// Global variables that are available in all functions.		
+		var camera, scene, renderer, cube, line, points;
+		var rot_X, rot_Y, rot_Z, cubeGeometry;
+
+		// Variables for orbiting camera with mouse
+		var mousePosition, r = 8, azimuth = 45, mouseAzimuth = 45;
+		var inclination = 60, mouseInclination = 60, isMouseDown = false;
+
+		// Variables associated with bunny object.
+		var mrBun, bunX, bunY, bunZ, wireframe, bunnyVertex;
+
+		// Variables for painting Xmas Trees
+		var xmasT, raycast, mouse, rollOverTree, paintPlane, isShiftDown = false;
+		var treeGeometry, treeMaterial, placeTree = false;
+		var treeOn = false, objects = [];
+
+		// Initialise the scene, and draw it for the first time.
+		init();
+		animate();
+
+		// Keyboard events for cube and bunny object
+		document.addEventListener('keydown', cubeRender);
+		document.addEventListener('keydown', cameraTranslate);
+		document.addEventListener('keydown', cubeRotate);
+		document.addEventListener('keydown', rabbitRotate);
+		document.addEventListener('keydown', rabbitRender);
+
+		// Mouse Events
+		document.addEventListener('mousedown', mouseClickDown);
+		document.addEventListener('mouseup', mouseClickUp);
+		document.addEventListener('mousemove', mouseMove);
+		
+
+		// Xmas Tree Events
+		document.addEventListener('keydown', treePaintDown);
+		document.addEventListener('keyup', treePaintUp);
+
+		// Scene initialisation. This function is only run once, at the very beginning.
+		function init() {
+			scene = new THREE.Scene();
+
+			// Set up the camera, move it to (4, 4, 5) and look at the origin (0, 0, 0).
+			camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+			camera.position.x = r * Math.cos(azimuth * Math.PI / 180) * Math.sin(inclination * Math.PI / 180);
+			camera.position.z = r * Math.sin(azimuth * Math.PI / 180) * Math.sin(inclination * Math.PI / 180);
+			camera.position.y = r * Math.cos(inclination * Math.PI / 180);			
+			camera.lookAt(new THREE.Vector3(0, 0, 0));
+
+			// Create a vector to hold the x and y positions of the mouse for the mouse event listener.
+			mousePosition = new THREE.Vector2();
+
+			// Draw a helper grid in the x-z plane (note: y is up).
+			scene.add(new THREE.GridHelper(20, 40, 0xffffff));
+
+			// Initialise the rotation variables.
+			// Rotation rates for the cube, cube edges and cube vertices.
+			rot_X = 0.0;
+			rot_Y = 0.0;
+			rot_Z = 0.0;
+
+			// Flags for each axis of rotation for the loaded bunny object.
+			bunX = 0;
+			bunY = 0;
+			bunZ = 0;			
+
+			//  Draw a cube
+			cubeGeometry = new THREE.BoxGeometry(1, 1, 1);
+
+			// Textures for faces of the cube
+			var loader = new THREE.TextureLoader();
+			var faceMaterials = [
+				new THREE.MeshPhongMaterial({ map: loader.load('milfordSound.jpg') }),
+				new THREE.MeshPhongMaterial({ map: loader.load('reykjavik.jpg') }),
+				new THREE.MeshPhongMaterial({ map: loader.load('TanzaniaLion.jpg') }),
+				new THREE.MeshPhongMaterial({ map: loader.load('churchofthegoodshepherd.jpg') }),
+				new THREE.MeshPhongMaterial({ map: loader.load('blue-lagoon.jpg') }),
+				new THREE.MeshPhongMaterial({ map: loader.load('Zanzibarcrooz.jpg') }),
+			];			
+
+			// Load the cube map textures for background of the scene.
+			var skyboxLoader = new THREE.CubeTextureLoader();
+			var textureSkybox = skyboxLoader.load([
+				'posx.jpg', 'negx.jpg', 'posy.jpg', 'negy.jpg', 'posz.jpg', 'negz.jpg'
+			]);
+
+			// Set the textures to the background of the scene.
+			scene.background = textureSkybox;
+			
+			// Draw Edges, line is called in function cubeRender.
+			var edges = new THREE.EdgesGeometry(cubeGeometry);
+			line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0xf5b342, linewidth: 1 }));
+
+			// Draw Vertices, points is called in function cubeRender.
+			var pMat = new THREE.PointsMaterial({ color: 0x0048ff, size: 0.4 });
+			points = new THREE.Points(cubeGeometry, pMat);
+
+			// Draw the Cube
+			cube = new THREE.Mesh(cubeGeometry, faceMaterials);
+			cube.castShadow = true; // Turn on shadows for casting
+			cube.receiveShadow = true; // Turn on ability to receive shadows.
+			scene.add(cube);
+
+			//  Visualise the axes of the global coordinate system.
+			// Set colours for each axis
+			var xMat = new THREE.LineBasicMaterial({
+				color: 0xfc0303
+			});
+			var yMat = new THREE.LineBasicMaterial({
+				color: 0x03fc07
+			});
+			var zMat = new THREE.LineBasicMaterial({
+				color: 0x0314fc
+			});
+
+			// Set the length of each axis
+			var xGeometry = new THREE.Geometry();
+			xGeometry.vertices.push(
+				new THREE.Vector3(0, 0, 0),
+				new THREE.Vector3(3, 0, 0)
+			);
+			var yGeometry = new THREE.Geometry();
+			yGeometry.vertices.push(
+				new THREE.Vector3(0, 0, 0),
+				new THREE.Vector3(0, 3, 0)
+			);
+			var zGeometry = new THREE.Geometry();
+			zGeometry.vertices.push(
+				new THREE.Vector3(0, 0, 0),
+				new THREE.Vector3(0, 0, 3)
+			);
+
+			// Add Axes
+			var xline = new THREE.Line(xGeometry, xMat);
+			scene.add(xline);
+			var yline = new THREE.Line(yGeometry, yMat);
+			scene.add(yline);
+			var zline = new THREE.Line(zGeometry, zMat);
+			scene.add(zline);
+
+			//Load local object into scene.
+			var rabLoader = new THREE.OBJLoader();
+
+			rabLoader.load(
+				// resource URL
+				'bunny-5000.obj',
+
+				// onLoad callback
+				function (object) {					
+					mrBun = object;// Set global variable to loaded object					
+
+					/* Draw the wire frame  and vertices by traversing each portion of the object for mesh class */
+					mrBun.traverse(function (child) {
+
+						if (child.isMesh) {
+							var rabFaces = new THREE.MeshPhongMaterial({ color: 0x19ae22 })
+							mrBun = new THREE.Mesh(child.geometry, rabFaces);
+							mrBun.scale.set(0.25, 0.25, 0.25);// Scale the rabbit to fit inside the cube
+							mrBun.position.set(-0.25, 0, -0.0625); // Position the rabbit to more centre of the cube
+
+							var wireframeGeometry = new THREE.EdgesGeometry(child.geometry);
+							var wireframeMaterial = new THREE.LineBasicMaterial({ color: 0xfc0303 });
+							wireframe = new THREE.LineSegments(wireframeGeometry, wireframeMaterial);
+							wireframe.scale.set(0.25, 0.25, 0.25);// Scales the edges to the same scale factor as the bunny
+							wireframe.position.set(-0.25, 0, -0.0625);// Positions the edges to the same position as the bunny
+
+
+							var vertexMat = new THREE.PointsMaterial({ color: 0x0048ff, size: 0.009 });
+							bunnyVertex = new THREE.Points(child.geometry, vertexMat);
+							bunnyVertex.scale.set(0.25, 0.25, 0.25);// Scales the vertices to the scale factor of the bunny
+							bunnyVertex.position.set(-0.25, 0, -0.0625);// Positions the vertices in line with the bunny							
+
+						}
+					})
+				},);
+
+			
+			// Create a roll-over Xmas Tree to help placement of the solid tree.
+			var rollOverTreeGeometry = new THREE.ConeBufferGeometry(1, 3, 128);
+			var rollOverTreeMaterial = new THREE.MeshBasicMaterial({ color: 0x19AE22, opacity: 0.5, transparent: true });
+			rollOverTree = new THREE.Mesh(rollOverTreeGeometry, rollOverTreeMaterial);
+			rollOverTree.position.y = 20;// Places the rollover out of view of the scene until painting is toggled on
+			scene.add(rollOverTree);
+
+			// Create geometry and materials for solid Xmas Trees.
+			var tLoad = new THREE.TextureLoader();
+			treeGeometry = new THREE.ConeBufferGeometry(1, 3, 128);
+			treeMaterial = new THREE.MeshPhongMaterial({ map: tLoad.load('tree.jpg') });			
+
+
+			// Ray caster and mouse location vectors for painting Xmas Trees
+			raycast = new THREE.Raycaster();
+			mouse = new THREE.Vector2();
+
+			// Create a plane for the painted trees to be place on top of.
+			var geometry = new THREE.PlaneBufferGeometry(20, 40);
+			geometry.rotateX(- Math.PI / 2);			
+			paintPlane = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ visible: false}));			
+			paintPlane.receiveShadow = true;
+			scene.add(paintPlane);
+			objects.push(paintPlane);// Add the plane to the objects array; used for ray casting
+
+			
+			// More complex lighting for 'face' rendering mode (requirement 4).
+			var light = new THREE.PointLight(0xffffff, 1.4, 0);
+			light.position.set(5, 10, 10);
+			light.castShadow = true;
+			scene.add(light);
+
+			// Set up the Web GL renderer.
+			var canvas = document.querySelector('canvas');// Add the canvas for cube map background
+			renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+			renderer.setPixelRatio(window.devicePixelRatio); // HiDPI/retina rendering
+			renderer.setSize(window.innerWidth, window.innerHeight);
+			renderer.shadowMap.enabled = true;// Enable shadows
+
+			document.body.appendChild(renderer.domElement);
+			
+			// Handle resizing of the browser window.
+			window.addEventListener('resize', handleResize, false);
+		}
+
+		// Handle resizing of the browser window.
+		function handleResize() {
+			camera.aspect = window.innerWidth / window.innerHeight;
+			camera.updateProjectionMatrix();
+			renderer.setSize(window.innerWidth, window.innerHeight);
+
+		}
+
+		// Animation loop function. This function is called whenever an update is required.
+		function animate() {
+			requestAnimationFrame(animate);
+
+			//rotate the cube faces
+			cube.rotation.x += rot_X;
+			cube.rotation.y += rot_Y;
+			cube.rotation.z += rot_Z;
+
+			//rotate the cube edges
+			line.rotation.x += rot_X;
+			line.rotation.y += rot_Y;
+			line.rotation.z += rot_Z;
+
+			//rotate the cube vertices
+			points.rotation.x += rot_X;
+			points.rotation.y += rot_Y;
+			points.rotation.z += rot_Z;
+
+			// Rotate the rabbit
+			if (bunX == 1) {
+				mrBun.rotation.x += 0.01;
+				wireframe.rotation.x += 0.01;
+				bunnyVertex.rotation.x += 0.01;
+			}
+
+			if (bunY == 1) {
+				mrBun.rotation.y += 0.01;
+				wireframe.rotation.y += 0.01;
+				bunnyVertex.rotation.y += 0.01;
+			}
+
+			if (bunZ == 1) {
+				mrBun.rotation.z += 0.01;
+				wireframe.rotation.z += 0.01;
+				bunnyVertex.rotation.z += 0.01;
+			}
+			
+
+			// Render the current scene to the screen.
+			renderer.render(scene, camera);
+
+
+		}
+
+		// Function that translates the camera on key presses.
+		function cameraTranslate(event) {
+			switch (event.keyCode) {
+
+				case 68: // d = right camera translate.
+					camera.translateX(0.2);
+					break;
+
+				case 65: // a = left camera translate.
+					camera.translateX(-0.2);					
+					break;
+
+				case 87: // w = up camera translate.
+					camera.translateY(0.2);
+					break;
+
+				case 83: // s = down camera translate.
+					camera.translateY(-0.2);
+					break;
+
+				case 50: // 2 = forward camera translate.
+					camera.translateZ(0.2);
+					break;
+
+				case 51: // 3 = backward camera translate.
+					camera.translateZ(-0.2);
+					break;
+					
+			}
+		}
+
+		// Function to render edges, faces and vertices of the cube on keyboard presses.
+		function cubeRender(event) {
+			switch (event.keyCode) {
+				// Render modes.
+				case 69: // e = edge
+					scene.add(line);
+					scene.remove(cube);
+					scene.remove(points);
+					break;
+
+				case 70: // f = face
+					scene.add(cube);
+					scene.remove(line);
+					scene.remove(points);
+					break;				
+
+				case 86: // v = vertex
+					scene.add(points);
+					scene.remove(cube);
+					scene.remove(line);
+					break;
+			}
+		}
+
+		//Function to render edges, faces and vertices of the rabbit on keyboard presses.
+		function rabbitRender(event) {
+			switch (event.keyCode) {
+				case 66:// b = add bunny to scene.
+					scene.add(mrBun);
+					scene.remove(wireframe);
+					scene.remove(bunnyVertex);
+					break;
+
+				case 78:// n = remove bunny from scene.
+					scene.remove(mrBun);
+					scene.remove(wireframe);
+					scene.remove(bunnyVertex);
+					break;
+
+				case 73: // i = render wireframe of bunny.
+					scene.add(wireframe);
+					scene.remove(mrBun);
+					scene.remove(bunnyVertex);
+					break;
+				
+				case 79:// o = add vertices of bunny.
+					scene.add(bunnyVertex);
+					scene.remove(mrBun);
+					scene.remove(wireframe);
+					break;
+
+			}
+		}
+
+		//Function to rotate the rabbit object on key presses by setting object flags.
+		function rabbitRotate(event) {
+			switch (event.keyCode) {
+
+				case 74: // j = start/stop rabbit x rotation.
+					if (bunX == 0) {
+						bunX = 1;
+					}
+					else {
+						bunX = 0;
+					}
+					break;
+
+				case 75: // k = start/stop rabbit y rotation.
+					if (bunY == 0) {
+						bunY = 1;
+					}
+					else {
+						bunY = 0;
+					}
+					break;
+
+				case 76: // l = start/stop rabbit z rotation.
+					if (bunZ == 0) {
+						bunZ = 1;
+					}
+					else {
+						bunZ = 0;
+					}
+					break;
+
+			}
+		}
+
+		// Function that rotates the cube on key presses.
+		function cubeRotate(event) {
+			switch (event.keyCode) {
+
+				case 88: // x = start/stop x rotation.
+					if (rot_X == 0.0) {
+						rot_X = 0.01;
+					}
+					else {rot_X = 0.0;
+					}
+					break;
+
+				case 89: // y = start/stop y rotation.
+					if (rot_Y == 0.0) {
+						rot_Y = 0.01;
+					}
+					else {
+						rot_Y = 0.0;
+					}
+					break;
+
+				case 90: // z = start/stop z rotation.
+					if (rot_Z == 0.0) {
+						rot_Z = 0.01;
+					}
+					else {
+						rot_Z = 0.0;
+					}
+					break;
+			}
+		}
+
+		// Function to handle when the mouse is pressed.
+		function mouseClickDown(event) {
+
+			event.preventDefault();
+
+			isMouseDown = true;// Sets down flag for mouse move function.
+
+			mouseInclination = inclination;
+			mouseAzimuth = azimuth;
+
+			// Store the location of where the mouse is pressed.
+			mousePosition.x = event.clientX;
+			mousePosition.y = event.clientY;
+
+			mouse.set((event.clientX / window.innerWidth) * 2 - 1, - (event.clientY / window.innerHeight) * 2 + 1);// Store mouse pointer position
+			raycast.setFromCamera(mouse, camera);// Ray cast from direction of camera to the position of the mouse.
+
+			var intersects = raycast.intersectObjects(objects);
+
+			if (intersects.length > 0 ) {
+				var intersect = intersects[0];
+				// delete Xmas Tree
+				if (isShiftDown) {
+					if (intersect.object !== paintPlane) {
+						scene.remove(intersect.object);// Remove tree from the scene
+						objects.splice(objects.indexOf(intersect.object), 1);// Remove the tree from object array
+					}
+					// create XmasTree
+				} else {
+					if (placeTree && treeOn == true) {
+						var xmasCone = new THREE.Mesh(treeGeometry, treeMaterial);
+						xmasCone.position.copy(intersect.point).add(intersect.face.normal);// Render the solid cone to the intersection array.
+						xmasCone.position.divideScalar(.8).floor().multiplyScalar(.8).addScalar(.4);// Position the cone is rendered at
+						xmasCone.rotation.y += Math.PI;// Rotate 180 degrees to face the light source
+						xmasCone.position.y += .32;// Move the cone slightly up to be placed ontop of the paint plane
+						xmasCone.castShadow = true;
+						xmasCone.receiveShadow = true;
+						scene.add(xmasCone);
+						objects.push(xmasCone);
+						
+					}
+				}
+
+			}
+
+		}
+
+		// Function to handle mouse movement.
+		function mouseMove(event) {
+
+			event.preventDefault();
+
+			mouse.set((event.clientX / window.innerWidth) * 2 - 1, - (event.clientY / window.innerHeight) * 2 + 1);
+			raycast.setFromCamera(mouse, camera);
+
+			var intersects = raycast.intersectObjects(objects);
+
+			if ((intersects.length > 0) && (treeOn == true)) {
+				var intersect = intersects[0];
+				rollOverTree.position.copy(intersect.point).add(intersect.face.normal);// Renders the rollover tree at intersections to the paintplane
+				rollOverTree.position.divideScalar(.8).floor().multiplyScalar(.85).addScalar(.4);// The positioning of the rollover tree
+				
+			}
+
+			if (isMouseDown) {
+
+				/*Update inclination and azimuth to where the mouse has moved.
+				 * Inclination is negative so mouse movement is more intuitive.*/
+				inclination = - ((event.clientY - mousePosition.y) * 0.1) + mouseInclination;
+
+				azimuth = ((event.clientX - mousePosition.x) * 0.1) + mouseAzimuth;
+
+				//Set inclination between 0 and 90 degrees.
+				inclination = Math.min(89.9, Math.max(0.0009, inclination));
+
+				//Recalculate the radius.
+				radiusRecalc();
+
+				// Convert from polar to cartesian.
+				camera.position.x = (r * Math.cos(azimuth * Math.PI / 180) * Math.sin(inclination * Math.PI / 180));
+				camera.position.z = (r * Math.sin(azimuth * Math.PI / 180) * Math.sin(inclination * Math.PI / 180));
+				camera.position.y = (r * Math.cos(inclination * Math.PI / 180));
+				camera.updateProjectionMatrix();
+				camera.lookAt(0, 0, 0);
+			}			
+
+		}
+
+		// Function to handle when the mouse is released.
+		function mouseClickUp(event) {
+
+			event.preventDefault();
+
+			isMouseDown = false;
+
+			// Store the location of where the mouse was released.
+			mousePosition.x = event.clientX - mousePosition.x;
+			mousePosition.y = event.clientY - mousePosition.y;
+
+
+		}
+
+		// Function that handles when tree painting is on, placement and deleting trees.
+		function treePaintDown(event) {
+			switch (event.keyCode) {
+
+				case 16: //Shift key is pressed for deleting tree
+					isShiftDown = true;
+					break;
+				case 80: // 'p' is held down for tree placement.
+					placeTree = true;
+					break;
+				case 84: //toggle tree painting
+					if (treeOn == false) {
+						treeOn = true;
+					}
+					else {
+						treeOn = false;
+						rollOverTree.position.y = 20;// Resets rollover tree out of view
+					}
+					break;
+			}
+		}
+
+		// Function to detoggle shift key and p key
+		function treePaintUp(event) {
+
+			switch (event.keyCode) {
+
+				case 16: // Shift key is released.
+					isShiftDown = false;
+					break;
+				case 80: // 'p' is released.
+					placeTree = false;
+					break;
+			}
+		}		
+
+		// Function that recalculates the distance from the camera to the look at point into a polar radius.
+		function radiusRecalc() {
+
+			var camx = camera.position.x,
+				camy = camera.position.y,
+				camz = camera.position.z;
+			r = Math.sqrt(Math.pow(camx, 2) + Math.pow(camy, 2) + Math.pow(camz, 2));
+
+		}
+	</script>
+</body>
+</html>
